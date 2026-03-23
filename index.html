@@ -16,21 +16,12 @@
 <style>
 body {
   margin: 0;
-  background: rgb(5,5,5);
+  background: #050505;
   color: white;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: -apple-system, sans-serif;
   height: 100vh;
   overflow: hidden;
-  user-select: none;
   touch-action: none;
-  overscroll-behavior: none;
-}
-
-.app {
-  width: 100%;
-  height: 100%;
-  transform-origin: center;
-  transition: transform 0.18s ease;
 }
 
 #message {
@@ -38,9 +29,8 @@ body {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  text-align: center;
   font-size: 2rem;
-  max-width: 85%;
+  text-align: center;
 }
 
 .overlay {
@@ -48,254 +38,175 @@ body {
   inset: 0;
   background: rgba(0,0,0,0.3);
   opacity: 0;
-  transition: opacity 0.25s ease;
+  transition: opacity 0.25s;
 }
-
-.overlay.active {
-  opacity: 1;
-}
+.overlay.active { opacity: 1; }
 
 .pulse {
   position: absolute;
   border-radius: 50%;
   background: rgba(255,255,255,0.12);
-  transform: translate(-50%, -50%) scale(var(--scale));
-  animation: expand 0.6s ease-out forwards;
+  transform: translate(-50%, -50%);
+  animation: expand 0.6s forwards;
 }
-
 @keyframes expand {
-  from {
-    width: var(--size);
-    height: var(--size);
-    opacity: 0.65;
-  }
-  to {
-    width: calc(var(--size) * 2.2);
-    height: calc(var(--size) * 2.2);
-    opacity: 0;
-  }
+  from { width:10px; height:10px; opacity:0.6; }
+  to { width:60px; height:60px; opacity:0; }
 }
 
 .flash {
   position: fixed;
-  inset: 0;
+  inset:0;
   background: rgba(255,255,255,0.1);
-  animation: flash 200ms ease-out;
+  animation: flash 200ms forwards;
 }
-
 @keyframes flash {
-  from { opacity: 1; }
-  to { opacity: 0; }
+  from { opacity:1; }
+  to { opacity:0; }
 }
 </style>
 </head>
 
 <body>
 
-<div class="app" id="app">
-  <div id="message"></div>
-</div>
-
+<div id="message"></div>
 <div class="overlay" id="overlay"></div>
 
 <script>
-// -------------------- MESSAGES --------------------
-
-const normalMessages = [
-  "nothing has happened yet",
-  "you haven’t acted yet",
-  "you’re still here"
-];
-
-const stayMessages = [
-  "stay with the feeling",
-  "let it pass",
-  "no need to act",
-  "this will pass if you don’t act"
-];
-
-let last = "";
-
-// -------------------- STATE --------------------
+// ---------------- STATE ----------------
 
 let energy = 0;
-let releasing = false;
-let stayMode = false;
-
-let touching = false;
-
-let realX = null, realY = null;
-let targetX = null, targetY = null;
-let prevX = null, prevY = null;
-
-let smoothSpeed = 0;
 let momentum = 0;
+let smoothSpeed = 0;
 
-// -------------------- DOM --------------------
+let lastReleaseTime = 0; // 🔥 replaces "releasing"
 
-const app = document.getElementById("app");
+// ---------------- DOM ----------------
+
 const messageEl = document.getElementById("message");
 const overlay = document.getElementById("overlay");
 
-// -------------------- MESSAGE --------------------
+// ---------------- MESSAGE ----------------
 
-function pick(arr) {
-  let m = last;
-  while (m === last) {
-    m = arr[Math.floor(Math.random() * arr.length)];
-  }
-  last = m;
-  return m;
+const normal = ["you’re still here","nothing happened yet"];
+const stay = ["stay with it","let it pass"];
+
+function setMessage(arr){
+  messageEl.textContent = arr[Math.floor(Math.random()*arr.length)];
 }
 
-function showMessage(type="normal") {
-  messageEl.textContent =
-    type === "stay" ? pick(stayMessages) : pick(normalMessages);
+// ---------------- VIBRATE ----------------
+
+function vibrate(p=[10]){
+  if(navigator.vibrate) navigator.vibrate(p);
 }
 
-// -------------------- VIBRATION --------------------
+// ---------------- VISUAL ----------------
 
-function vibrate(pattern=[10]) {
-  if (navigator.vibrate) navigator.vibrate(pattern);
-}
-
-// -------------------- RESET (🔥 KEY FIX) --------------------
-
-function resetInteraction() {
-  energy = 0;
-  momentum = 0;
-  smoothSpeed = 0;
-  releasing = false;
-}
-
-// -------------------- VISUAL --------------------
-
-function createPulse(x, y, size, scale) {
+function pulse(x,y){
   const p = document.createElement("div");
-  p.className = "pulse";
-  p.style.left = x + "px";
-  p.style.top = y + "px";
-  p.style.setProperty('--size', size + 'px');
-  p.style.setProperty('--scale', scale);
+  p.className="pulse";
+  p.style.left=x+"px";
+  p.style.top=y+"px";
   document.body.appendChild(p);
-  setTimeout(() => p.remove(), 600);
+  setTimeout(()=>p.remove(),600);
 }
 
-// -------------------- ENERGY --------------------
+// ---------------- ENERGY ----------------
 
-function updateEnergy(speed) {
-  if (releasing) return;
+function updateEnergy(speed){
+  const now = Date.now();
 
-  smoothSpeed = smoothSpeed * 0.7 + speed * 0.3;
-  momentum = momentum * 0.9 + smoothSpeed * 0.6;
+  smoothSpeed = smoothSpeed*0.7 + speed*0.3;
+  momentum = momentum*0.9 + smoothSpeed*0.6;
 
-  const normalized = Math.min(momentum / 20, 1);
+  const normalized = Math.min(momentum/20,1);
 
-  let force = Math.pow(normalized, 1.05) + 0.02;
+  let gain = Math.pow(normalized,1.1) + 0.02;
 
-  energy += force * 3;
+  energy += gain*3;
 
-  if (energy > 70) {
-    releasing = true;
+  // 🔥 only block PEAK, not buildup
+  if(energy > 70 && now - lastReleaseTime > 1500){
     triggerRelease();
   }
 }
 
-// -------------------- RELEASE --------------------
+// ---------------- RELEASE ----------------
 
-function triggerRelease() {
-  const f = document.createElement("div");
-  f.className = "flash";
+function triggerRelease(){
+  lastReleaseTime = Date.now(); // 🔥 key
+
+  energy = 0;
+  momentum = 0;
+
+  const f=document.createElement("div");
+  f.className="flash";
   document.body.appendChild(f);
-  setTimeout(() => f.remove(), 200);
+  setTimeout(()=>f.remove(),200);
 
   vibrate([10,20,10]);
 
   overlay.classList.add("active");
-  stayMode = true;
-  showMessage("stay");
+  setMessage(stay);
 
-  setTimeout(() => {
-    stayMode = false;
+  setTimeout(()=>{
     overlay.classList.remove("active");
-    showMessage("normal");
-
-    // 🔥 IMPORTANT: allow rebuild immediately
-    releasing = false;
-
-  }, 2000);
+    setMessage(normal);
+  },2000);
 }
 
-// -------------------- LOOP --------------------
+// ---------------- INPUT ----------------
 
-function loop() {
-  if (touching && targetX !== null) {
+let touching=false;
+let x=0,y=0,px=0,py=0;
 
-    realX += (targetX - realX) * 0.25;
-    realY += (targetY - realY) * 0.25;
-
-    if (prevX !== null) {
-      const dx = realX - prevX;
-      const dy = realY - prevY;
-      const speed = Math.hypot(dx, dy);
-
-      createPulse(realX, realY, 16 + speed, 1 + speed * 0.02);
-      updateEnergy(speed);
-    }
-
-    prevX = realX;
-    prevY = realY;
-  }
-
-  requestAnimationFrame(loop);
-}
-loop();
-
-// -------------------- INPUT --------------------
-
-function start(x,y) {
-  touching = true;
-
-  // 🔥 THIS FIXES EVERYTHING
-  resetInteraction();
-
-  targetX = realX = x;
-  targetY = realY = y;
-  prevX = x;
-  prevY = y;
+function start(nx,ny){
+  touching=true;
+  x=px=nx;
+  y=py=ny;
 }
 
-function move(x,y) {
-  if (!touching) return;
-  targetX = x;
-  targetY = y;
+function move(nx,ny){
+  if(!touching) return;
+
+  x += (nx-x)*0.25;
+  y += (ny-y)*0.25;
+
+  const dx=x-px;
+  const dy=y-py;
+  const speed=Math.hypot(dx,dy);
+
+  pulse(x,y);
+  updateEnergy(speed);
+
+  px=x; py=y;
 }
 
-function end() {
-  touching = false;
-  prevX = null;
-  prevY = null;
+function end(){
+  touching=false;
 }
 
-// events
-document.addEventListener("mousedown", e => start(e.clientX,e.clientY));
-document.addEventListener("mousemove", e => move(e.clientX,e.clientY));
-document.addEventListener("mouseup", end);
+// mouse
+document.addEventListener("mousedown",e=>start(e.clientX,e.clientY));
+document.addEventListener("mousemove",e=>move(e.clientX,e.clientY));
+document.addEventListener("mouseup",end);
 
-document.addEventListener("touchstart", e => {
-  const t = e.touches[0];
+// touch
+document.addEventListener("touchstart",e=>{
+  const t=e.touches[0];
   start(t.clientX,t.clientY);
 },{passive:false});
 
-document.addEventListener("touchmove", e => {
-  const t = e.touches[0];
+document.addEventListener("touchmove",e=>{
+  const t=e.touches[0];
   move(t.clientX,t.clientY);
 },{passive:false});
 
-document.addEventListener("touchend", end);
+document.addEventListener("touchend",end);
 
 // init
-showMessage();
+setMessage(normal);
 </script>
 
 </body>
