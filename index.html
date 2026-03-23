@@ -140,10 +140,13 @@ let prevX = null;
 let prevY = null;
 
 let smoothSpeed = 0;
-let momentum = 0; // 🔥 NEW
+let momentum = 0;
 
 let recoil = 0;
 let cooldown = 0;
+
+// 🔥 FIX
+let lastReleaseTime = 0;
 
 // -------------------- DOM --------------------
 
@@ -186,19 +189,15 @@ function createPulse(x, y, size, scale) {
   setTimeout(() => p.remove(), 700);
 }
 
-// -------------------- ENERGY (IMPROVED) --------------------
+// -------------------- ENERGY --------------------
 
 function updateEnergy(speed) {
   if (releasing) return;
 
   smoothSpeed = smoothSpeed * 0.75 + speed * 0.25;
-
-  // 🔥 momentum builds over time
   momentum = momentum * 0.9 + smoothSpeed * 0.5;
 
   const normalized = Math.min(momentum / 25, 1);
-
-  // 🔥 easier curve
   let force = Math.pow(normalized, 1.1);
 
   if (cooldown > 0) force *= (1 - cooldown);
@@ -206,9 +205,14 @@ function updateEnergy(speed) {
 
   energy += force * 3;
 
-  // 🔥 LOWER threshold (was 100)
-  if (energy > 75) {
+  // 🔥 FIXED TRIGGER
+  if (
+    energy > 75 &&
+    !releasing &&
+    Date.now() - lastReleaseTime > 1200
+  ) {
     releasing = true;
+    lastReleaseTime = Date.now();
     recoil = 1;
     triggerRelease();
   }
@@ -237,6 +241,7 @@ function triggerRelease() {
 
   setTimeout(() => {
     stayMode = false;
+    releasing = false; // 🔥 KEY FIX
     overlay.classList.remove("active");
     showMessage("normal");
   }, 2800);
@@ -328,7 +333,6 @@ function end() {
   smoothSpeed = 0;
 }
 
-// events
 document.addEventListener("mousedown", e => start(e.clientX, e.clientY));
 document.addEventListener("mousemove", e => move(e.clientX, e.clientY));
 document.addEventListener("mouseup", end);
