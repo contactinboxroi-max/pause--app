@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>Pause</title>
+
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#050505">
+
+<style>
+body {
+  margin:0;
+  background:#050505;
+  color:white;
+  font-family:-apple-system,sans-serif;
+  height:100vh;
+  overflow:hidden;
+  touch-action:none;
+}
+
+#message{
+  position:absolute;
+  top:50%;
+  left:50%;
+  transform:translate(-50%,-50%);
+  font-size:2rem;
+  text-align:center;
+}
+
+.pulse{
+  position:absolute;
+  border-radius:50%;
+  background:rgba(255,255,255,0.12);
+  transform:translate(-50%,-50%);
+  animation:expand 0.6s forwards;
+}
+@keyframes expand{
+  from{width:12px;height:12px;opacity:0.6;}
+  to{width:70px;height:70px;opacity:0;}
+}
+
+.flash{
+  position:fixed;
+  inset:0;
+  background:rgba(255,255,255,0.1);
+  animation:flash 180ms forwards;
+}
+@keyframes flash{
+  from{opacity:1;}
+  to{opacity:0;}
+}
+</style>
+</head>
+
+<body>
+
+<div id="message"></div>
+
+<script>
+
+// ---------- STATE ----------
+
+let energy = 0;
+let lastRelease = 0;
+
+let active = false;
+
+let targetX=0,targetY=0;
+let realX=0,realY=0;
+let prevX=0,prevY=0;
+
+// ---------- MESSAGE ----------
+
+const normal=["you’re still here","nothing happened yet"];
+const stay=["stay with it","let it pass"];
+
+function setMessage(arr){
+  message.textContent=arr[Math.floor(Math.random()*arr.length)];
+}
+
+// ---------- VIBRATE ----------
+
+function vibrate(p=[10]){
+  if(navigator.vibrate) navigator.vibrate(p);
+}
+
+// ---------- VISUAL ----------
+
+function pulse(x,y){
+  const p=document.createElement("div");
+  p.className="pulse";
+  p.style.left=x+"px";
+  p.style.top=y+"px";
+  document.body.appendChild(p);
+  setTimeout(()=>p.remove(),600);
+}
+
+// ---------- ENERGY (FINAL MODEL) ----------
+
+function updateEnergy(speed){
+
+  // 🔥 movement contribution
+  let moveGain = Math.min(speed/15,1);
+
+  // 🔥 time / persistence contribution
+  let holdGain = 0.015;
+
+  energy += (moveGain*0.6 + holdGain)*4;
+
+  // 🔥 natural decay (prevents runaway)
+  energy *= 0.995;
+
+  // release gate
+  if(energy > 60 && Date.now() - lastRelease > 1000){
+    triggerRelease();
+  }
+}
+
+// ---------- RELEASE ----------
+
+function triggerRelease(){
+  lastRelease = Date.now();
+
+  energy = 10;
+
+  const f=document.createElement("div");
+  f.className="flash";
+  document.body.appendChild(f);
+  setTimeout(()=>f.remove(),180);
+
+  vibrate([10,20,10]);
+
+  setMessage(stay);
+
+  setTimeout(()=>{
+    setMessage(normal);
+  },1500);
+}
+
+// ---------- LOOP ----------
+
+function loop(){
+  if(active){
+
+    realX += (targetX-realX)*0.25;
+    realY += (targetY-realY)*0.25;
+
+    const dx=realX-prevX;
+    const dy=realY-prevY;
+    const speed=Math.hypot(dx,dy);
+
+    pulse(realX,realY);
+    updateEnergy(speed);
+
+    prevX=realX;
+    prevY=realY;
+  }
+
+  requestAnimationFrame(loop);
+}
+loop();
+
+// ---------- INPUT ----------
+
+document.addEventListener("pointerdown",e=>{
+  active=true;
+
+  targetX=realX=prevX=e.clientX;
+  targetY=realY=prevY=e.clientY;
+});
+
+document.addEventListener("pointermove",e=>{
+  if(!active) return;
+  targetX=e.clientX;
+  targetY=e.clientY;
+});
+
+document.addEventListener("pointerup",()=>{
+  active=false;
+});
+
+// init
+setMessage(normal);
+
+</script>
+
+</body>
+</html>
