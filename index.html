@@ -50,15 +50,15 @@ body {
   animation: expand 0.6s forwards;
 }
 @keyframes expand {
-  from { width:10px; height:10px; opacity:0.6; }
-  to { width:60px; height:60px; opacity:0; }
+  from { width:12px; height:12px; opacity:0.6; }
+  to { width:70px; height:70px; opacity:0; }
 }
 
 .flash {
   position: fixed;
   inset:0;
   background: rgba(255,255,255,0.1);
-  animation: flash 200ms forwards;
+  animation: flash 180ms forwards;
 }
 @keyframes flash {
   from { opacity:1; }
@@ -79,7 +79,13 @@ let energy = 0;
 let momentum = 0;
 let smoothSpeed = 0;
 
-let lastReleaseTime = 0; // 🔥 replaces "releasing"
+let lastRelease = 0;
+
+let touching = false;
+
+let targetX = 0, targetY = 0;
+let realX = 0, realY = 0;
+let prevX = 0, prevY = 0;
 
 // ---------------- DOM ----------------
 
@@ -95,7 +101,7 @@ function setMessage(arr){
   messageEl.textContent = arr[Math.floor(Math.random()*arr.length)];
 }
 
-// ---------------- VIBRATE ----------------
+// ---------------- VIBRATION ----------------
 
 function vibrate(p=[10]){
   if(navigator.vibrate) navigator.vibrate(p);
@@ -104,7 +110,7 @@ function vibrate(p=[10]){
 // ---------------- VISUAL ----------------
 
 function pulse(x,y){
-  const p = document.createElement("div");
+  const p=document.createElement("div");
   p.className="pulse";
   p.style.left=x+"px";
   p.style.top=y+"px";
@@ -115,19 +121,17 @@ function pulse(x,y){
 // ---------------- ENERGY ----------------
 
 function updateEnergy(speed){
-  const now = Date.now();
+  smoothSpeed = smoothSpeed*0.75 + speed*0.25;
+  momentum = momentum*0.9 + smoothSpeed*0.5;
 
-  smoothSpeed = smoothSpeed*0.7 + speed*0.3;
-  momentum = momentum*0.9 + smoothSpeed*0.6;
+  const norm = Math.min(momentum/18,1);
 
-  const normalized = Math.min(momentum/20,1);
+  let gain = Math.pow(norm,1.05) + 0.015;
 
-  let gain = Math.pow(normalized,1.1) + 0.02;
+  energy += gain*2.8;
 
-  energy += gain*3;
-
-  // 🔥 only block PEAK, not buildup
-  if(energy > 70 && now - lastReleaseTime > 1500){
+  // only limit peak frequency
+  if(energy > 65 && Date.now() - lastRelease > 1200){
     triggerRelease();
   }
 }
@@ -135,15 +139,15 @@ function updateEnergy(speed){
 // ---------------- RELEASE ----------------
 
 function triggerRelease(){
-  lastReleaseTime = Date.now(); // 🔥 key
+  lastRelease = Date.now();
 
-  energy = 0;
-  momentum = 0;
+  energy = 10;
+  momentum *= 0.3;
 
   const f=document.createElement("div");
   f.className="flash";
   document.body.appendChild(f);
-  setTimeout(()=>f.remove(),200);
+  setTimeout(()=>f.remove(),180);
 
   vibrate([10,20,10]);
 
@@ -153,38 +157,56 @@ function triggerRelease(){
   setTimeout(()=>{
     overlay.classList.remove("active");
     setMessage(normal);
-  },2000);
+  },1800);
 }
+
+// ---------------- MAIN LOOP (🔥 KEY) ----------------
+
+function loop(){
+
+  if(touching){
+    // smooth follow
+    realX += (targetX - realX)*0.25;
+    realY += (targetY - realY)*0.25;
+
+    const dx = realX - prevX;
+    const dy = realY - prevY;
+    const speed = Math.hypot(dx,dy);
+
+    // only react if movement is real
+    if(speed > 0.1){
+      pulse(realX,realY);
+      updateEnergy(speed);
+    }
+
+    prevX = realX;
+    prevY = realY;
+  }
+
+  requestAnimationFrame(loop);
+}
+loop();
 
 // ---------------- INPUT ----------------
 
-let touching=false;
-let x=0,y=0,px=0,py=0;
+// 🔥 events ONLY update target
 
-function start(nx,ny){
-  touching=true;
-  x=px=nx;
-  y=py=ny;
+function start(x,y){
+  touching = true;
+  targetX = realX = prevX = x;
+  targetY = realY = prevY = y;
+
+  // light reset (not full wipe)
+  smoothSpeed = 0;
 }
 
-function move(nx,ny){
-  if(!touching) return;
-
-  x += (nx-x)*0.25;
-  y += (ny-y)*0.25;
-
-  const dx=x-px;
-  const dy=y-py;
-  const speed=Math.hypot(dx,dy);
-
-  pulse(x,y);
-  updateEnergy(speed);
-
-  px=x; py=y;
+function move(x,y){
+  targetX = x;
+  targetY = y;
 }
 
 function end(){
-  touching=false;
+  touching = false;
 }
 
 // mouse
