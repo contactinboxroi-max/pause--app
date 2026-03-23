@@ -42,7 +42,6 @@ body {
   text-align: center;
   font-size: 2rem;
   max-width: 85%;
-  line-height: 1.3;
 }
 
 .overlay {
@@ -185,23 +184,17 @@ function createPulse(x, y, size, scale) {
   setTimeout(() => p.remove(), 650);
 }
 
-// -------------------- ENERGY (PERFECTED) --------------------
+// -------------------- ENERGY --------------------
 
 function updateEnergy(speed) {
   if (releasing) return;
 
-  // smoother + more sensitive
   smoothSpeed = smoothSpeed * 0.7 + speed * 0.3;
-
-  // strong momentum carry
   momentum = momentum * 0.92 + smoothSpeed * 0.6;
 
   const normalized = Math.min(momentum / 22, 1);
 
-  // softer curve (no dead zone)
   let force = Math.pow(normalized, 1.05);
-
-  // 🔥 baseline gain (THIS removes "nothing happens")
   force += 0.015;
 
   if (cooldown > 0) force *= (1 - cooldown);
@@ -209,7 +202,6 @@ function updateEnergy(speed) {
 
   energy += force * 3.2;
 
-  // 🔥 auto-complete near peak
   if (energy > 55) {
     energy += (75 - energy) * 0.08;
   }
@@ -221,7 +213,7 @@ function updateEnergy(speed) {
   }
 }
 
-// -------------------- RELEASE --------------------
+// -------------------- RELEASE FIX --------------------
 
 function triggerRelease() {
   const f = document.createElement("div");
@@ -239,13 +231,19 @@ function triggerRelease() {
   showMessage("stay");
 
   cooldown = 1;
-  momentum = 0;
-  energy = 0;
+
+  // 🔥 DO NOT zero everything instantly
+  momentum *= 0.3;
+  energy = 20;
 
   setTimeout(() => {
     stayMode = false;
     overlay.classList.remove("active");
     showMessage("normal");
+
+    // 🔥 FULL RESET HERE
+    releasing = false;
+    cooldown = 0.2;
   }, 2800);
 }
 
