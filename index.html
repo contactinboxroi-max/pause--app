@@ -24,7 +24,6 @@ body {
   user-select: none;
   touch-action: none;
   overscroll-behavior: none;
-  transition: background 0.25s ease;
 }
 
 .app {
@@ -61,7 +60,7 @@ body {
   border-radius: 50%;
   background: rgba(255,255,255,0.12);
   transform: translate(-50%, -50%) scale(var(--scale));
-  animation: expand 0.65s ease-out forwards;
+  animation: expand 0.6s ease-out forwards;
 }
 
 @keyframes expand {
@@ -71,8 +70,8 @@ body {
     opacity: 0.65;
   }
   to {
-    width: calc(var(--size) * 2.3);
-    height: calc(var(--size) * 2.3);
+    width: calc(var(--size) * 2.2);
+    height: calc(var(--size) * 2.2);
     opacity: 0;
   }
 }
@@ -80,8 +79,8 @@ body {
 .flash {
   position: fixed;
   inset: 0;
-  background: rgba(255,255,255,var(--strength));
-  animation: flash var(--duration) ease-out;
+  background: rgba(255,255,255,0.1);
+  animation: flash 200ms ease-out;
 }
 
 @keyframes flash {
@@ -112,11 +111,7 @@ const stayMessages = [
   "stay with the feeling",
   "let it pass",
   "no need to act",
-  "this will pass if you don’t act",
-  "you’re already doing it",
-  "just a few more seconds",
-  "this is enough",
-  "don’t rush"
+  "this will pass if you don’t act"
 ];
 
 let last = "";
@@ -129,19 +124,12 @@ let stayMode = false;
 
 let touching = false;
 
-let realX = null;
-let realY = null;
-let targetX = null;
-let targetY = null;
-
-let prevX = null;
-let prevY = null;
+let realX = null, realY = null;
+let targetX = null, targetY = null;
+let prevX = null, prevY = null;
 
 let smoothSpeed = 0;
 let momentum = 0;
-
-let recoil = 0;
-let cooldown = 0;
 
 // -------------------- DOM --------------------
 
@@ -167,8 +155,17 @@ function showMessage(type="normal") {
 
 // -------------------- VIBRATION --------------------
 
-function vibrate(pattern = [10]) {
+function vibrate(pattern=[10]) {
   if (navigator.vibrate) navigator.vibrate(pattern);
+}
+
+// -------------------- RESET (🔥 KEY FIX) --------------------
+
+function resetInteraction() {
+  energy = 0;
+  momentum = 0;
+  smoothSpeed = 0;
+  releasing = false;
 }
 
 // -------------------- VISUAL --------------------
@@ -181,7 +178,7 @@ function createPulse(x, y, size, scale) {
   p.style.setProperty('--size', size + 'px');
   p.style.setProperty('--scale', scale);
   document.body.appendChild(p);
-  setTimeout(() => p.remove(), 650);
+  setTimeout(() => p.remove(), 600);
 }
 
 // -------------------- ENERGY --------------------
@@ -190,114 +187,60 @@ function updateEnergy(speed) {
   if (releasing) return;
 
   smoothSpeed = smoothSpeed * 0.7 + speed * 0.3;
-  momentum = momentum * 0.92 + smoothSpeed * 0.6;
+  momentum = momentum * 0.9 + smoothSpeed * 0.6;
 
-  const normalized = Math.min(momentum / 22, 1);
+  const normalized = Math.min(momentum / 20, 1);
 
-  let force = Math.pow(normalized, 1.05);
-  force += 0.015;
+  let force = Math.pow(normalized, 1.05) + 0.02;
 
-  if (cooldown > 0) force *= (1 - cooldown);
-  if (stayMode) force *= 0.2;
+  energy += force * 3;
 
-  energy += force * 3.2;
-
-  if (energy > 55) {
-    energy += (75 - energy) * 0.08;
-  }
-
-  if (energy > 75) {
+  if (energy > 70) {
     releasing = true;
-    recoil = 1;
     triggerRelease();
   }
 }
 
-// -------------------- RELEASE FIX --------------------
+// -------------------- RELEASE --------------------
 
 function triggerRelease() {
   const f = document.createElement("div");
   f.className = "flash";
-  f.style.setProperty('--strength', 0.1);
-  f.style.setProperty('--duration', "200ms");
   document.body.appendChild(f);
   setTimeout(() => f.remove(), 200);
 
-  vibrate([10, 20, 10]);
+  vibrate([10,20,10]);
 
   overlay.classList.add("active");
-
   stayMode = true;
   showMessage("stay");
-
-  cooldown = 1;
-
-  // 🔥 DO NOT zero everything instantly
-  momentum *= 0.3;
-  energy = 20;
 
   setTimeout(() => {
     stayMode = false;
     overlay.classList.remove("active");
     showMessage("normal");
 
-    // 🔥 FULL RESET HERE
+    // 🔥 IMPORTANT: allow rebuild immediately
     releasing = false;
-    cooldown = 0.2;
-  }, 2800);
-}
 
-// -------------------- DECAY --------------------
-
-function decayEnergy() {
-  energy *= stayMode ? 0.96 : 0.985;
-  cooldown *= 0.92;
-
-  const base = 5 + energy * 1.25;
-  document.body.style.background = `rgb(${base},${base},${base})`;
-
-  const resistance = 1 - Math.max(0, energy - 40) * 0.0007;
-
-  recoil *= 0.85;
-
-  const stayScale = stayMode ? 0.985 : 1;
-
-  app.style.transform =
-    `scale(${(resistance + recoil * 0.022) * stayScale})`;
-
-  requestAnimationFrame(decayEnergy);
-}
-decayEnergy();
-
-// -------------------- DRAW --------------------
-
-function draw(x, y, speed) {
-  const intensity = 0.75 + Math.min(speed / 18, 2.8);
-
-  createPulse(
-    x,
-    y,
-    16 + intensity * 18,
-    1 + intensity * 0.28
-  );
-
-  updateEnergy(speed);
+  }, 2000);
 }
 
 // -------------------- LOOP --------------------
 
 function loop() {
   if (touching && targetX !== null) {
-    const dragFactor = stayMode ? 0.09 : 0.24;
 
-    realX += (targetX - realX) * dragFactor;
-    realY += (targetY - realY) * dragFactor;
+    realX += (targetX - realX) * 0.25;
+    realY += (targetY - realY) * 0.25;
 
     if (prevX !== null) {
       const dx = realX - prevX;
       const dy = realY - prevY;
       const speed = Math.hypot(dx, dy);
-      draw(realX, realY, speed);
+
+      createPulse(realX, realY, 16 + speed, 1 + speed * 0.02);
+      updateEnergy(speed);
     }
 
     prevX = realX;
@@ -310,15 +253,19 @@ loop();
 
 // -------------------- INPUT --------------------
 
-function start(x, y) {
+function start(x,y) {
   touching = true;
+
+  // 🔥 THIS FIXES EVERYTHING
+  resetInteraction();
+
   targetX = realX = x;
   targetY = realY = y;
   prevX = x;
   prevY = y;
 }
 
-function move(x, y) {
+function move(x,y) {
   if (!touching) return;
   targetX = x;
   targetY = y;
@@ -326,27 +273,24 @@ function move(x, y) {
 
 function end() {
   touching = false;
-  targetX = null;
-  targetY = null;
   prevX = null;
   prevY = null;
-  smoothSpeed = 0;
 }
 
 // events
-document.addEventListener("mousedown", e => start(e.clientX, e.clientY));
-document.addEventListener("mousemove", e => move(e.clientX, e.clientY));
+document.addEventListener("mousedown", e => start(e.clientX,e.clientY));
+document.addEventListener("mousemove", e => move(e.clientX,e.clientY));
 document.addEventListener("mouseup", end);
 
 document.addEventListener("touchstart", e => {
   const t = e.touches[0];
-  start(t.clientX, t.clientY);
-}, { passive: false });
+  start(t.clientX,t.clientY);
+},{passive:false});
 
 document.addEventListener("touchmove", e => {
   const t = e.touches[0];
-  move(t.clientX, t.clientY);
-}, { passive: false });
+  move(t.clientX,t.clientY);
+},{passive:false});
 
 document.addEventListener("touchend", end);
 
