@@ -21,7 +21,7 @@ body {
   font-family: -apple-system, sans-serif;
   height: 100vh;
   overflow: hidden;
-  touch-action: none;
+  touch-action: none; /* 🔥 IMPORTANT */
 }
 
 #message {
@@ -81,7 +81,7 @@ let smoothSpeed = 0;
 
 let lastRelease = 0;
 
-let touching = false;
+let active = false;
 
 let targetX = 0, targetY = 0;
 let realX = 0, realY = 0;
@@ -126,11 +126,10 @@ function updateEnergy(speed){
 
   const norm = Math.min(momentum/18,1);
 
-  let gain = Math.pow(norm,1.05) + 0.015;
+  let gain = Math.pow(norm,1.05) + 0.02;
 
   energy += gain*2.8;
 
-  // only limit peak frequency
   if(energy > 65 && Date.now() - lastRelease > 1200){
     triggerRelease();
   }
@@ -160,12 +159,10 @@ function triggerRelease(){
   },1800);
 }
 
-// ---------------- MAIN LOOP (🔥 KEY) ----------------
+// ---------------- LOOP ----------------
 
 function loop(){
-
-  if(touching){
-    // smooth follow
+  if(active){
     realX += (targetX - realX)*0.25;
     realY += (targetY - realY)*0.25;
 
@@ -173,8 +170,7 @@ function loop(){
     const dy = realY - prevY;
     const speed = Math.hypot(dx,dy);
 
-    // only react if movement is real
-    if(speed > 0.1){
+    if(speed > 0.05){
       pulse(realX,realY);
       updateEnergy(speed);
     }
@@ -187,45 +183,32 @@ function loop(){
 }
 loop();
 
-// ---------------- INPUT ----------------
+// ---------------- POINTER EVENTS (🔥 FIX) ----------------
 
-// 🔥 events ONLY update target
+document.addEventListener("pointerdown", e => {
+  active = true;
 
-function start(x,y){
-  touching = true;
-  targetX = realX = prevX = x;
-  targetY = realY = prevY = y;
+  targetX = realX = prevX = e.clientX;
+  targetY = realY = prevY = e.clientY;
 
-  // light reset (not full wipe)
   smoothSpeed = 0;
-}
 
-function move(x,y){
-  targetX = x;
-  targetY = y;
-}
+  // 🔥 capture pointer (prevents drop)
+  e.target.setPointerCapture(e.pointerId);
+});
 
-function end(){
-  touching = false;
-}
+document.addEventListener("pointermove", e => {
+  if(!active) return;
 
-// mouse
-document.addEventListener("mousedown",e=>start(e.clientX,e.clientY));
-document.addEventListener("mousemove",e=>move(e.clientX,e.clientY));
-document.addEventListener("mouseup",end);
+  targetX = e.clientX;
+  targetY = e.clientY;
+});
 
-// touch
-document.addEventListener("touchstart",e=>{
-  const t=e.touches[0];
-  start(t.clientX,t.clientY);
-},{passive:false});
+document.addEventListener("pointerup", e => {
+  active = false;
 
-document.addEventListener("touchmove",e=>{
-  const t=e.touches[0];
-  move(t.clientX,t.clientY);
-},{passive:false});
-
-document.addEventListener("touchend",end);
+  try { e.target.releasePointerCapture(e.pointerId); } catch(e){}
+});
 
 // init
 setMessage(normal);
