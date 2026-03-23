@@ -6,13 +6,11 @@
 
 <title>Pause</title>
 
-<!-- iPhone App Mode -->
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Pause">
 <meta name="theme-color" content="#050505">
 
-<!-- App Icon -->
 <link rel="apple-touch-icon" href="icon.png">
 
 <style>
@@ -46,7 +44,6 @@ body {
   max-width: 85%;
   line-height: 1.3;
   opacity: 0.95;
-  transition: opacity 0.3s ease;
 }
 
 .overlay {
@@ -54,7 +51,6 @@ body {
   inset: 0;
   background: rgba(0,0,0,0.3);
   opacity: 0;
-  pointer-events: none;
   transition: opacity 0.3s ease;
 }
 
@@ -67,7 +63,6 @@ body {
   border-radius: 50%;
   background: rgba(255,255,255,0.12);
   transform: translate(-50%, -50%) scale(var(--scale));
-  pointer-events: none;
   animation: expand 0.75s ease-out forwards;
 }
 
@@ -88,7 +83,6 @@ body {
   position: fixed;
   inset: 0;
   background: rgba(255,255,255,var(--strength));
-  pointer-events: none;
   animation: flash var(--duration) ease-out;
 }
 
@@ -144,12 +138,11 @@ let targetY = null;
 
 let prevX = null;
 let prevY = null;
+
 let smoothSpeed = 0;
+let momentum = 0; // 🔥 NEW
 
 let recoil = 0;
-let peakSpeed = 0;
-let buildFrames = 0;
-
 let cooldown = 0;
 
 // -------------------- DOM --------------------
@@ -177,14 +170,12 @@ function showMessage(type="normal") {
 // -------------------- VIBRATION --------------------
 
 function vibrate(pattern = [10]) {
-  if (navigator.vibrate) {
-    navigator.vibrate(pattern);
-  }
+  if (navigator.vibrate) navigator.vibrate(pattern);
 }
 
 // -------------------- VISUAL --------------------
 
-function createPulse(x, y, size = 20, scale = 1) {
+function createPulse(x, y, size, scale) {
   const p = document.createElement("div");
   p.className = "pulse";
   p.style.left = x + "px";
@@ -192,28 +183,31 @@ function createPulse(x, y, size = 20, scale = 1) {
   p.style.setProperty('--size', size + 'px');
   p.style.setProperty('--scale', scale);
   document.body.appendChild(p);
-  setTimeout(() => p.remove(), 750);
+  setTimeout(() => p.remove(), 700);
 }
 
-// -------------------- ENERGY --------------------
+// -------------------- ENERGY (IMPROVED) --------------------
 
 function updateEnergy(speed) {
   if (releasing) return;
 
-  smoothSpeed = smoothSpeed * 0.8 + speed * 0.2;
+  smoothSpeed = smoothSpeed * 0.75 + speed * 0.25;
 
-  peakSpeed = Math.max(peakSpeed, smoothSpeed);
-  buildFrames++;
+  // 🔥 momentum builds over time
+  momentum = momentum * 0.9 + smoothSpeed * 0.5;
 
-  const normalized = Math.min(smoothSpeed / 30, 1);
-  let force = Math.pow(normalized, 1.5);
+  const normalized = Math.min(momentum / 25, 1);
+
+  // 🔥 easier curve
+  let force = Math.pow(normalized, 1.1);
 
   if (cooldown > 0) force *= (1 - cooldown);
-  if (stayMode) force *= 0.15;
+  if (stayMode) force *= 0.2;
 
-  energy += force * 2;
+  energy += force * 3;
 
-  if (energy > 100) {
+  // 🔥 LOWER threshold (was 100)
+  if (energy > 75) {
     releasing = true;
     recoil = 1;
     triggerRelease();
@@ -225,12 +219,11 @@ function updateEnergy(speed) {
 function triggerRelease() {
   const f = document.createElement("div");
   f.className = "flash";
-  f.style.setProperty('--strength', 0.08);
-  f.style.setProperty('--duration', "250ms");
+  f.style.setProperty('--strength', 0.1);
+  f.style.setProperty('--duration', "220ms");
   document.body.appendChild(f);
-  setTimeout(() => f.remove(), 250);
+  setTimeout(() => f.remove(), 220);
 
-  // 🔥 vibration here
   vibrate([10, 20, 10]);
 
   overlay.classList.add("active");
@@ -239,42 +232,33 @@ function triggerRelease() {
   showMessage("stay");
 
   cooldown = 1;
-  peakSpeed = 0;
-  buildFrames = 0;
+  momentum = 0;
+  energy = 0;
 
   setTimeout(() => {
     stayMode = false;
     overlay.classList.remove("active");
     showMessage("normal");
-  }, 3000);
+  }, 2800);
 }
 
 // -------------------- DECAY --------------------
 
 function decayEnergy() {
-  if (releasing) {
-    energy *= 0.88;
-    if (energy < 5) {
-      energy = 0;
-      releasing = false;
-    }
-  } else {
-    energy *= 0.985;
-  }
-
+  energy *= stayMode ? 0.96 : 0.985;
   cooldown *= 0.92;
 
-  const base = 5 + energy * 0.9;
+  const base = 5 + energy * 1.2;
   document.body.style.background = `rgb(${base},${base},${base})`;
 
   const resistance = 1 - Math.max(0, energy - 40) * 0.0008;
 
   recoil *= 0.85;
 
-  const stayScale = stayMode ? 0.98 : 1;
+  const stayScale = stayMode ? 0.985 : 1;
 
   app.style.transform =
-    `scale(${(resistance + recoil * 0.015) * stayScale})`;
+    `scale(${(resistance + recoil * 0.02) * stayScale})`;
 
   requestAnimationFrame(decayEnergy);
 }
@@ -283,12 +267,15 @@ decayEnergy();
 // -------------------- DRAW --------------------
 
 function draw(x, y, speed) {
-  const intensity = 0.6 + Math.min(speed / 25, 2);
+  const intensity = 0.7 + Math.min(speed / 20, 2.5);
 
-  const size = 14 + intensity * 16;
-  const scale = 1 + intensity * 0.2;
+  createPulse(
+    x,
+    y,
+    16 + intensity * 18,
+    1 + intensity * 0.25
+  );
 
-  createPulse(x, y, size, scale);
   updateEnergy(speed);
 }
 
@@ -296,7 +283,7 @@ function draw(x, y, speed) {
 
 function loop() {
   if (touching && targetX !== null) {
-    const dragFactor = stayMode ? 0.08 : 0.2;
+    const dragFactor = stayMode ? 0.09 : 0.22;
 
     realX += (targetX - realX) * dragFactor;
     realY += (targetY - realY) * dragFactor;
@@ -305,7 +292,6 @@ function loop() {
       const dx = realX - prevX;
       const dy = realY - prevY;
       const speed = Math.hypot(dx, dy);
-
       draw(realX, realY, speed);
     }
 
@@ -323,11 +309,8 @@ function start(x, y) {
   touching = true;
   targetX = realX = x;
   targetY = realY = y;
-
   prevX = x;
   prevY = y;
-
-  createPulse(x, y, 18);
 }
 
 function move(x, y) {
@@ -345,12 +328,11 @@ function end() {
   smoothSpeed = 0;
 }
 
-// mouse
+// events
 document.addEventListener("mousedown", e => start(e.clientX, e.clientY));
 document.addEventListener("mousemove", e => move(e.clientX, e.clientY));
 document.addEventListener("mouseup", end);
 
-// touch
 document.addEventListener("touchstart", e => {
   const t = e.touches[0];
   start(t.clientX, t.clientY);
