@@ -7,109 +7,346 @@
 <title>Pause</title>
 
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Pause">
 <meta name="theme-color" content="#050505">
 
+<link rel="apple-touch-icon" href="icon.png">
+
 <style>
-body{
-  margin:0;
-  background:#050505;
-  color:white;
-  font-family:-apple-system,sans-serif;
-  height:100vh;
-  overflow:hidden;
-  touch-action:none;
+body {
+  margin: 0;
+  background: rgb(5,5,5);
+  color: white;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  height: 100vh;
+  overflow: hidden;
+  user-select: none;
+  touch-action: none;
+  overscroll-behavior: none;
+  transition: background 0.3s ease;
 }
 
-#message{
-  position:absolute;
-  top:50%;
-  left:50%;
-  transform:translate(-50%,-50%);
-  font-size:2rem;
-  text-align:center;
+.app {
+  width: 100%;
+  height: 100%;
+  transform-origin: center;
+  transition: transform 0.2s ease;
 }
 
-.flash{
-  position:fixed;
-  inset:0;
-  background:rgba(255,255,255,0.12);
-  animation:flash 200ms forwards;
+#message {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  font-size: 2rem;
+  max-width: 85%;
+  line-height: 1.3;
+  opacity: 0.95;
 }
-@keyframes flash{
-  from{opacity:1;}
-  to{opacity:0;}
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.3);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.overlay.active {
+  opacity: 1;
+}
+
+.pulse {
+  position: absolute;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.12);
+  transform: translate(-50%, -50%) scale(var(--scale));
+  animation: expand 0.75s ease-out forwards;
+}
+
+@keyframes expand {
+  from {
+    width: var(--size);
+    height: var(--size);
+    opacity: 0.6;
+  }
+  to {
+    width: calc(var(--size) * 2.2);
+    height: calc(var(--size) * 2.2);
+    opacity: 0;
+  }
+}
+
+.flash {
+  position: fixed;
+  inset: 0;
+  background: rgba(255,255,255,var(--strength));
+  animation: flash var(--duration) ease-out;
+}
+
+@keyframes flash {
+  from { opacity: 1; }
+  to { opacity: 0; }
 }
 </style>
 </head>
 
 <body>
 
-<div id="message">you’re still here</div>
+<div class="app" id="app">
+  <div id="message"></div>
+</div>
+
+<div class="overlay" id="overlay"></div>
 
 <script>
+// -------------------- MESSAGES --------------------
 
-// -------- STATE --------
+const normalMessages = [
+  "nothing has happened yet",
+  "you haven’t acted yet",
+  "you’re still here"
+];
+
+const stayMessages = [
+  "stay with the feeling",
+  "let it pass",
+  "no need to act",
+  "this will pass if you don’t act",
+  "you’re already doing it",
+  "just a few more seconds",
+  "this is enough",
+  "don’t rush"
+];
+
+let last = "";
+
+// -------------------- STATE --------------------
 
 let energy = 0;
-let active = false;
-let lastRelease = 0;
+let releasing = false;
+let stayMode = false;
 
-// -------- SETTINGS (simple + stable) --------
+let touching = false;
 
-const BUILD_RATE = 0.6;      // how fast it builds
-const DECAY = 0.98;         // natural drop
-const THRESHOLD = 100;      // peak point
-const COOLDOWN = 800;       // ms between peaks
+let realX = null;
+let realY = null;
+let targetX = null;
+let targetY = null;
 
-// -------- RELEASE --------
+let prevX = null;
+let prevY = null;
 
-function release(){
-  lastRelease = Date.now();
-  energy = 0;
+let smoothSpeed = 0;
+let momentum = 0; // 🔥 NEW
 
-  const f=document.createElement("div");
-  f.className="flash";
-  document.body.appendChild(f);
-  setTimeout(()=>f.remove(),200);
+let recoil = 0;
+let cooldown = 0;
 
-  message.textContent = "stay";
+// -------------------- DOM --------------------
 
-  setTimeout(()=>{
-    message.textContent = "you’re still here";
-  },1000);
+const app = document.getElementById("app");
+const messageEl = document.getElementById("message");
+const overlay = document.getElementById("overlay");
+
+// -------------------- MESSAGE --------------------
+
+function pick(arr) {
+  let m = last;
+  while (m === last) {
+    m = arr[Math.floor(Math.random() * arr.length)];
+  }
+  last = m;
+  return m;
 }
 
-// -------- LOOP --------
+function showMessage(type="normal") {
+  messageEl.textContent =
+    type === "stay" ? pick(stayMessages) : pick(normalMessages);
+}
 
-function loop(){
+// -------------------- VIBRATION --------------------
 
-  if(active){
-    energy += BUILD_RATE;
+function vibrate(pattern = [10]) {
+  if (navigator.vibrate) navigator.vibrate(pattern);
+}
+
+// -------------------- VISUAL --------------------
+
+function createPulse(x, y, size, scale) {
+  const p = document.createElement("div");
+  p.className = "pulse";
+  p.style.left = x + "px";
+  p.style.top = y + "px";
+  p.style.setProperty('--size', size + 'px');
+  p.style.setProperty('--scale', scale);
+  document.body.appendChild(p);
+  setTimeout(() => p.remove(), 700);
+}
+
+// -------------------- ENERGY (IMPROVED) --------------------
+
+function updateEnergy(speed) {
+  if (releasing) return;
+
+  smoothSpeed = smoothSpeed * 0.75 + speed * 0.25;
+
+  // 🔥 momentum builds over time
+  momentum = momentum * 0.9 + smoothSpeed * 0.5;
+
+  const normalized = Math.min(momentum / 25, 1);
+
+  // 🔥 easier curve
+  let force = Math.pow(normalized, 1.1);
+
+  if (cooldown > 0) force *= (1 - cooldown);
+  if (stayMode) force *= 0.2;
+
+  energy += force * 3;
+
+  // 🔥 LOWER threshold (was 100)
+  if (energy > 75) {
+    releasing = true;
+    recoil = 1;
+    triggerRelease();
   }
+}
 
-  energy *= DECAY;
+// -------------------- RELEASE --------------------
 
-  if(
-    energy > THRESHOLD &&
-    Date.now() - lastRelease > COOLDOWN
-  ){
-    release();
+function triggerRelease() {
+  const f = document.createElement("div");
+  f.className = "flash";
+  f.style.setProperty('--strength', 0.1);
+  f.style.setProperty('--duration', "220ms");
+  document.body.appendChild(f);
+  setTimeout(() => f.remove(), 220);
+
+  vibrate([10, 20, 10]);
+
+  overlay.classList.add("active");
+
+  stayMode = true;
+  showMessage("stay");
+
+  cooldown = 1;
+  momentum = 0;
+  energy = 0;
+
+  setTimeout(() => {
+    stayMode = false;
+    overlay.classList.remove("active");
+    showMessage("normal");
+  }, 2800);
+}
+
+// -------------------- DECAY --------------------
+
+function decayEnergy() {
+  energy *= stayMode ? 0.96 : 0.985;
+  cooldown *= 0.92;
+
+  const base = 5 + energy * 1.2;
+  document.body.style.background = `rgb(${base},${base},${base})`;
+
+  const resistance = 1 - Math.max(0, energy - 40) * 0.0008;
+
+  recoil *= 0.85;
+
+  const stayScale = stayMode ? 0.985 : 1;
+
+  app.style.transform =
+    `scale(${(resistance + recoil * 0.02) * stayScale})`;
+
+  requestAnimationFrame(decayEnergy);
+}
+decayEnergy();
+
+// -------------------- DRAW --------------------
+
+function draw(x, y, speed) {
+  const intensity = 0.7 + Math.min(speed / 20, 2.5);
+
+  createPulse(
+    x,
+    y,
+    16 + intensity * 18,
+    1 + intensity * 0.25
+  );
+
+  updateEnergy(speed);
+}
+
+// -------------------- LOOP --------------------
+
+function loop() {
+  if (touching && targetX !== null) {
+    const dragFactor = stayMode ? 0.09 : 0.22;
+
+    realX += (targetX - realX) * dragFactor;
+    realY += (targetY - realY) * dragFactor;
+
+    if (prevX !== null) {
+      const dx = realX - prevX;
+      const dy = realY - prevY;
+      const speed = Math.hypot(dx, dy);
+      draw(realX, realY, speed);
+    }
+
+    prevX = realX;
+    prevY = realY;
   }
 
   requestAnimationFrame(loop);
 }
 loop();
 
-// -------- INPUT --------
+// -------------------- INPUT --------------------
 
-document.addEventListener("pointerdown",()=>{
-  active = true;
-});
+function start(x, y) {
+  touching = true;
+  targetX = realX = x;
+  targetY = realY = y;
+  prevX = x;
+  prevY = y;
+}
 
-document.addEventListener("pointerup",()=>{
-  active = false;
-});
+function move(x, y) {
+  if (!touching) return;
+  targetX = x;
+  targetY = y;
+}
 
+function end() {
+  touching = false;
+  targetX = null;
+  targetY = null;
+  prevX = null;
+  prevY = null;
+  smoothSpeed = 0;
+}
+
+// events
+document.addEventListener("mousedown", e => start(e.clientX, e.clientY));
+document.addEventListener("mousemove", e => move(e.clientX, e.clientY));
+document.addEventListener("mouseup", end);
+
+document.addEventListener("touchstart", e => {
+  const t = e.touches[0];
+  start(t.clientX, t.clientY);
+}, { passive: false });
+
+document.addEventListener("touchmove", e => {
+  const t = e.touches[0];
+  move(t.clientX, t.clientY);
+}, { passive: false });
+
+document.addEventListener("touchend", end);
+
+// init
+showMessage();
 </script>
 
 </body>
